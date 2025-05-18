@@ -35,39 +35,94 @@ namespace StudentFeedbackSystem.Data
                     INNER JOIN LoginCodes lc ON u.LoginCode = lc.Code
                     WHERE u.LoginCode = @LoginCode 
                     AND u.UserType = @UserType
-                    AND lc.UserType = @UserType
-                    AND lc.IsUsed = 1";
+                    AND lc.UserType = @UserType";
 
                 SqlParameter[] parameters = {
                     new SqlParameter("@LoginCode", loginCode),
                     new SqlParameter("@UserType", userType)
                 };
 
-                DataTable result = ExecuteQuery(query, parameters);
-                
-                if (result.Rows.Count == 0)
-                {
-                    // Check if the code exists but for a different role
-                    query = @"
-                        SELECT u.UserType 
-                        FROM Users u 
-                        INNER JOIN LoginCodes lc ON u.LoginCode = lc.Code
-                        WHERE u.LoginCode = @LoginCode";
-
-                    DataTable wrongRole = ExecuteQuery(query, 
-                        new SqlParameter[] { new SqlParameter("@LoginCode", loginCode) });
-
-                    if (wrongRole.Rows.Count > 0)
-                    {
-                        throw new Exception($"This login code is for a {wrongRole.Rows[0]["UserType"]} account.");
-                    }
-                }
-
-                return result;
+                return ExecuteQuery(query, parameters);
             }
             catch (Exception ex)
             {
                 throw new Exception($"Login validation error: {ex.Message}");
+            }
+        }
+
+        public static DataTable GenerateLoginCode(string userType)
+        {
+            try
+            {
+                return ExecuteQuery("EXEC sp_GenerateLoginCode @UserType",
+                    new SqlParameter("@UserType", userType));
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error generating login code: {ex.Message}");
+            }
+        }
+
+        public static DataTable GetAllSubjects()
+        {
+            try
+            {
+                return ExecuteQuery("EXEC sp_GetAllSubjects");
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error getting subjects: {ex.Message}");
+            }
+        }
+
+        public static DataTable GetAvailableTeachers()
+        {
+            try
+            {
+                return ExecuteQuery("EXEC sp_GetAvailableTeachers");
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error getting teachers: {ex.Message}");
+            }
+        }
+
+        public static void AddSubject(string subjectName, int teacherId)
+        {
+            try
+            {
+                ExecuteQuery("EXEC sp_AddSubject @SubjectName, @TeacherID",
+                    new SqlParameter("@SubjectName", subjectName),
+                    new SqlParameter("@TeacherID", teacherId));
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error adding subject: {ex.Message}");
+            }
+        }
+
+        public static void DeleteSubject(int subjectId)
+        {
+            try
+            {
+                ExecuteQuery("EXEC sp_DeleteSubject @SubjectID",
+                    new SqlParameter("@SubjectID", subjectId));
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error deleting subject: {ex.Message}");
+            }
+        }
+
+        public static DataTable GetSystemStats()
+        {
+            try
+            {
+                return ExecuteQuery("EXEC sp_GetSystemStats");
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error getting system stats: {ex.Message}");
             }
         }
 
@@ -224,26 +279,7 @@ namespace StudentFeedbackSystem.Data
             }
         }
 
-        public static DataTable GetSystemStats()
-        {
-            try
-            {
-                string query = @"
-                    SELECT 
-                        (SELECT COUNT(*) FROM Users WHERE UserType = 'Student') as StudentCount,
-                        (SELECT COUNT(*) FROM Users WHERE UserType = 'Teacher') as TeacherCount,
-                        (SELECT COUNT(*) FROM Subjects) as SubjectCount,
-                        (SELECT COUNT(*) FROM Feedback) as FeedbackCount";
-
-                return ExecuteQuery(query);
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"Error getting system stats: {ex.Message}");
-            }
-        }
-
-        private static DataTable ExecuteQuery(string query, params SqlParameter[] parameters)
+        public static DataTable ExecuteQuery(string query, params SqlParameter[] parameters)
         {
             DataTable dt = new DataTable();
             try
@@ -267,28 +303,6 @@ namespace StudentFeedbackSystem.Data
                 throw new Exception($"Database error: {ex.Message}");
             }
             return dt;
-        }
-
-        private static int ExecuteNonQuery(string query, params SqlParameter[] parameters)
-        {
-            try
-            {
-                using (SqlConnection conn = new SqlConnection(connectionString))
-                {
-                    using (SqlCommand cmd = new SqlCommand(query, conn))
-                    {
-                        if (parameters != null)
-                            cmd.Parameters.AddRange(parameters);
-
-                        conn.Open();
-                        return cmd.ExecuteNonQuery();
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"Database error: {ex.Message}");
-            }
         }
     }
 }
