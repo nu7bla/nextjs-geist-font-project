@@ -1,57 +1,48 @@
 -- Create Database
-IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'StudentFeedbackDB')
+USE master;
+GO
+
+IF EXISTS (SELECT * FROM sys.databases WHERE name = 'StudentFeedbackDB')
 BEGIN
-    CREATE DATABASE StudentFeedbackDB;
+    ALTER DATABASE StudentFeedbackDB SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+    DROP DATABASE StudentFeedbackDB;
 END
+GO
+
+CREATE DATABASE StudentFeedbackDB;
 GO
 
 USE StudentFeedbackDB;
 GO
 
--- Drop existing tables if they exist
-IF EXISTS (SELECT * FROM sys.tables WHERE name = 'Feedback')
-    DROP TABLE Feedback;
-IF EXISTS (SELECT * FROM sys.tables WHERE name = 'Enrollments')
-    DROP TABLE Enrollments;
-IF EXISTS (SELECT * FROM sys.tables WHERE name = 'Subjects')
-    DROP TABLE Subjects;
-IF EXISTS (SELECT * FROM sys.tables WHERE name = 'Users')
-    DROP TABLE Users;
-IF EXISTS (SELECT * FROM sys.tables WHERE name = 'LoginCodes')
-    DROP TABLE LoginCodes;
-GO
-
--- Create LoginCodes table
+-- Create LoginCodes table first
 CREATE TABLE LoginCodes (
     CodeID INT PRIMARY KEY IDENTITY(1,1),
-    Code NVARCHAR(50) UNIQUE NOT NULL,
+    Code NVARCHAR(50) NOT NULL,
     UserType NVARCHAR(50) NOT NULL CHECK (UserType IN ('Student', 'Teacher', 'Admin')),
     IsUsed BIT DEFAULT 0,
-    GeneratedOn DATETIME DEFAULT GETDATE()
+    GeneratedOn DATETIME DEFAULT GETDATE(),
+    CONSTRAINT UC_LoginCode UNIQUE (Code)
 );
 GO
 
--- Create Users table
+-- Create Users table with foreign key to LoginCodes
 CREATE TABLE Users (
     UserID INT PRIMARY KEY IDENTITY(1,1),
     UserName NVARCHAR(100) NOT NULL,
     UserType NVARCHAR(50) NOT NULL CHECK (UserType IN ('Student', 'Teacher', 'Admin')),
-    LoginCode NVARCHAR(50) UNIQUE NOT NULL,
+    LoginCode NVARCHAR(50) NOT NULL,
     CONSTRAINT FK_Users_LoginCodes FOREIGN KEY (LoginCode) REFERENCES LoginCodes(Code)
 );
 GO
 
--- Create Subjects table
+-- Create Subjects table with foreign key to Users (Teachers)
 CREATE TABLE Subjects (
     SubjectID INT PRIMARY KEY IDENTITY(1,1),
     SubjectName NVARCHAR(100) NOT NULL,
     TeacherID INT NOT NULL,
     CONSTRAINT FK_Subjects_Teachers FOREIGN KEY (TeacherID) REFERENCES Users(UserID)
 );
-GO
-
--- Create index on TeacherID for better performance
-CREATE INDEX IX_Subjects_TeacherID ON Subjects(TeacherID);
 GO
 
 -- Create Enrollments table
@@ -63,11 +54,6 @@ CREATE TABLE Enrollments (
     CONSTRAINT FK_Enrollments_Subjects FOREIGN KEY (SubjectID) REFERENCES Subjects(SubjectID),
     CONSTRAINT UC_Enrollment UNIQUE (UserID, SubjectID)
 );
-GO
-
--- Create indexes for better query performance
-CREATE INDEX IX_Enrollments_UserID ON Enrollments(UserID);
-CREATE INDEX IX_Enrollments_SubjectID ON Enrollments(SubjectID);
 GO
 
 -- Create Feedback table
@@ -86,46 +72,189 @@ CREATE TABLE Feedback (
 );
 GO
 
--- Create index for better performance on feedback queries
-CREATE INDEX IX_Feedback_SubmittedOn ON Feedback(SubmittedOn);
+-- Create stored procedure for generating login codes
+CREATE OR ALTER PROCEDURE sp_GenerateLoginCode
+    @UserType NVARCHAR(50)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @Code NVARCHAR(50);
+    DECLARE @Prefix NVARCHAR(10);
+    DECLARE @Number INT;
+    
+    -- Set prefix based on user type
+    SET @Prefix = CASE @UserType
+        WHEN 'Student' THEN 'STU'
+        WHEN 'Teacher' THEN 'TCHR'
+        ELSE 'INVALID'
+    END;
+    
+    IF @Prefix = 'INVALID'
+    BEGIN
+        RAISERROR ('Invalid user type specified.', 16, 1);
+        RETURN;
+    END;
+    
+    -- Get the next number
+    SELECT @Number = ISNULL(MAX(CAST(SUBSTRING(Code, LEN(@Prefix) + 1, 3) AS INT)), 0) + 1
+    FROM LoginCodes
+    WHERE Code LIKE @Prefix + '%';
+    
+    -- Generate the code
+    SET @Code = @Prefix + RIGHT('000' + CAST(@Number AS VARCHAR(3)), 3);
+    
+    -- Insert the new code
+    INSERT INTO LoginCodes (Code, UserType, IsUsed)
+    VALUES (@Code, @UserType, 0);
+    
+    -- Return the generated code
+    SELECT @Code AS GeneratedCode;
+END;
+GO
+
+-- Create stored procedure for getting all subjects with details
+CREATE OR ALTER PROCEDURE sp_GetAllSubjects
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT 
+        s.SubjectID,
+        s.SubjectName,
+        s.TeacherID,
+        u.UserName as TeacherName,
+        (SELECT COUNT(*) FROM Enrollments e WHERE e.SubjectID = s.SubjectID) as EnrollmentCount,
+        (
+            SELECT COUNT(*) 
+            FROM Feedback f
+            INNER JOIN Enrollments e ON f.EnrollmentID = e.EnrollmentID
+            WHERE e.SubjectID = s.SubjectID
+        ) as FeedbackCount
+    FROM Subjects s
+    INNER JOIN Users u ON s.TeacherID = u.UserID
+    ORDER BY s.SubjectName;
+END;
+GO
+
+-- Create stored procedure for adding a subject
+CREATE OR ALTER PROCEDURE sp_AddSubject
+    @SubjectName NVARCHAR(100),
+    @TeacherID INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    -- Check if subject already exists for this teacher
+    IF EXISTS (SELECT 1 FROM Subjects WHERE SubjectName = @SubjectName AND TeacherID = @TeacherID)
+    BEGIN
+        RAISERROR ('Subject already exists for this teacher.', 16, 1);
+        RETURN;
+    END
+    
+    -- Insert new subject
+    INSERT INTO Subjects (SubjectName, TeacherID)
+    VALUES (@SubjectName, @TeacherID);
+    
+    SELECT SCOPE_IDENTITY() AS SubjectID;
+END;
+GO
+
+-- Create stored procedure for deleting a subject
+CREATE OR ALTER PROCEDURE sp_DeleteSubject
+    @SubjectID INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    -- Check if subject has any feedback
+    IF EXISTS (
+        SELECT 1 
+        FROM Feedback f
+        INNER JOIN Enrollments e ON f.EnrollmentID = e.EnrollmentID
+        WHERE e.SubjectID = @SubjectID
+    )
+    BEGIN
+        RAISERROR ('Cannot delete subject that has feedback.', 16, 1);
+        RETURN;
+    END
+    
+    BEGIN TRANSACTION;
+    
+    BEGIN TRY
+        -- Delete enrollments first
+        DELETE FROM Enrollments WHERE SubjectID = @SubjectID;
+        
+        -- Delete subject
+        DELETE FROM Subjects WHERE SubjectID = @SubjectID;
+        
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH
+END;
+GO
+
+-- Create stored procedure for getting system statistics
+CREATE OR ALTER PROCEDURE sp_GetSystemStats
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT 
+        (SELECT COUNT(*) FROM Users WHERE UserType = 'Student') as StudentCount,
+        (SELECT COUNT(*) FROM Users WHERE UserType = 'Teacher') as TeacherCount,
+        (SELECT COUNT(*) FROM Subjects) as SubjectCount,
+        (SELECT COUNT(*) FROM Feedback) as FeedbackCount;
+END;
+GO
+
+-- Create stored procedure for getting available teachers
+CREATE OR ALTER PROCEDURE sp_GetAvailableTeachers
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT UserID, UserName
+    FROM Users
+    WHERE UserType = 'Teacher'
+    ORDER BY UserName;
+END;
 GO
 
 -- Insert sample data
 
--- Insert Admin
+-- Insert Admin login code and user
 INSERT INTO LoginCodes (Code, UserType, IsUsed) VALUES ('ADMIN001', 'Admin', 1);
-INSERT INTO Users (UserName, UserType, LoginCode)
-VALUES ('System Admin', 'Admin', 'ADMIN001');
+INSERT INTO Users (UserName, UserType, LoginCode) VALUES ('System Admin', 'Admin', 'ADMIN001');
 GO
 
--- Insert Teachers
-INSERT INTO LoginCodes (Code, UserType, IsUsed) 
-VALUES 
-    ('TCHR001', 'Teacher', 1),
-    ('TCHR002', 'Teacher', 1),
-    ('TCHR003', 'Teacher', 1);
+-- Insert Teacher login codes and users
+INSERT INTO LoginCodes (Code, UserType, IsUsed) VALUES 
+('TCHR001', 'Teacher', 1),
+('TCHR002', 'Teacher', 1),
+('TCHR003', 'Teacher', 1);
 
-INSERT INTO Users (UserName, UserType, LoginCode)
-VALUES 
-    ('John Smith', 'Teacher', 'TCHR001'),
-    ('Mary Johnson', 'Teacher', 'TCHR002'),
-    ('Robert Wilson', 'Teacher', 'TCHR003');
+INSERT INTO Users (UserName, UserType, LoginCode) VALUES 
+('John Smith', 'Teacher', 'TCHR001'),
+('Mary Johnson', 'Teacher', 'TCHR002'),
+('Robert Wilson', 'Teacher', 'TCHR003');
 GO
 
--- Insert Students
-INSERT INTO LoginCodes (Code, UserType, IsUsed)
-VALUES 
-    ('STU001', 'Student', 1),
-    ('STU002', 'Student', 1),
-    ('STU003', 'Student', 1),
-    ('STU004', 'Student', 1);
+-- Insert Student login codes and users
+INSERT INTO LoginCodes (Code, UserType, IsUsed) VALUES 
+('STU001', 'Student', 1),
+('STU002', 'Student', 1),
+('STU003', 'Student', 1),
+('STU004', 'Student', 1);
 
-INSERT INTO Users (UserName, UserType, LoginCode)
-VALUES 
-    ('Alice Brown', 'Student', 'STU001'),
-    ('Bob Davis', 'Student', 'STU002'),
-    ('Carol White', 'Student', 'STU003'),
-    ('David Miller', 'Student', 'STU004');
+INSERT INTO Users (UserName, UserType, LoginCode) VALUES 
+('Alice Brown', 'Student', 'STU001'),
+('Bob Davis', 'Student', 'STU002'),
+('Carol White', 'Student', 'STU003'),
+('David Miller', 'Student', 'STU004');
 GO
 
 -- Insert Subjects
@@ -143,63 +272,4 @@ SELECT u.UserID, s.SubjectID
 FROM Users u
 CROSS JOIN Subjects s
 WHERE u.UserType = 'Student';
-GO
-
--- Create Stored Procedures
-
--- Get User Details
-CREATE OR ALTER PROCEDURE sp_GetUserDetails
-    @LoginCode NVARCHAR(50),
-    @UserType NVARCHAR(50)
-AS
-BEGIN
-    SELECT UserID, UserName, UserType
-    FROM Users
-    WHERE LoginCode = @LoginCode AND UserType = @UserType;
-END
-GO
-
--- Get Student Subjects
-CREATE OR ALTER PROCEDURE sp_GetStudentSubjects
-    @StudentID INT
-AS
-BEGIN
-    SELECT s.SubjectID, s.SubjectName,
-           CASE WHEN f.FeedbackID IS NULL THEN 0 ELSE 1 END as HasFeedback
-    FROM Subjects s
-    INNER JOIN Enrollments e ON s.SubjectID = e.SubjectID
-    LEFT JOIN Feedback f ON e.EnrollmentID = f.EnrollmentID
-    WHERE e.UserID = @StudentID;
-END
-GO
-
--- Get Teacher Feedback
-CREATE OR ALTER PROCEDURE sp_GetTeacherFeedback
-    @TeacherID INT,
-    @SubjectName NVARCHAR(100)
-AS
-BEGIN
-    SELECT 
-        f.SubmittedOn,
-        f.Q1, f.Q2, f.Q3, f.Q4, f.Q5,
-        f.Comments
-    FROM Feedback f
-    INNER JOIN Enrollments e ON f.EnrollmentID = e.EnrollmentID
-    INNER JOIN Subjects s ON e.SubjectID = s.SubjectID
-    WHERE s.TeacherID = @TeacherID
-    AND s.SubjectName = @SubjectName
-    ORDER BY f.SubmittedOn DESC;
-END
-GO
-
--- Get System Statistics
-CREATE OR ALTER PROCEDURE sp_GetSystemStats
-AS
-BEGIN
-    SELECT 
-        (SELECT COUNT(*) FROM Users WHERE UserType = 'Student') as StudentCount,
-        (SELECT COUNT(*) FROM Users WHERE UserType = 'Teacher') as TeacherCount,
-        (SELECT COUNT(*) FROM Subjects) as SubjectCount,
-        (SELECT COUNT(*) FROM Feedback) as FeedbackCount;
-END
 GO
