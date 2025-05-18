@@ -1,21 +1,72 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
+using System.Data;
+using StudentFeedbackSystem.Data;
 
-namespace StudentFeedbackSystem
+namespace StudentFeedbackSystem.Forms
 {
     public partial class FormFeedback : Form
     {
+        private readonly int studentId;
+        private readonly int subjectId;
         private string subjectName;
         private GroupBox[] questionGroups;
         private RadioButton[][] ratingButtons;
         private TextBox txtComments;
         private Button btnSubmit;
+        private Button btnCancel;
+        private Label lblSubject;
 
-        public FormFeedback(string subject)
+        private readonly string[] questions = {
+            "How would you rate the clarity of teaching?",
+            "How would you rate the course content and materials?",
+            "How effective were the teaching methods used?",
+            "How would you rate the teacher's availability for help?",
+            "What is your overall experience with this subject?"
+        };
+
+        public FormFeedback(int studentId, int subjectId)
         {
-            this.subjectName = subject;
+            this.studentId = studentId;
+            this.subjectId = subjectId;
+            
+            // Check for existing feedback before initializing
+            if (DBConnection.HasExistingFeedback(studentId, subjectId))
+            {
+                MessageBox.Show("You have already submitted feedback for this subject.",
+                    "Duplicate Feedback", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                this.DialogResult = DialogResult.Cancel;
+                this.Close();
+                return;
+            }
+
+            LoadSubjectName();
             InitializeComponent();
+        }
+
+        private void LoadSubjectName()
+        {
+            try
+            {
+                string query = "SELECT SubjectName FROM Subjects WHERE SubjectID = @SubjectID";
+                SqlParameter[] parameters = {
+                    new SqlParameter("@SubjectID", subjectId)
+                };
+
+                DataTable dt = DBConnection.ExecuteQuery(query, parameters);
+                if (dt.Rows.Count > 0)
+                {
+                    subjectName = dt.Rows[0]["SubjectName"].ToString();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error loading subject info: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                this.DialogResult = DialogResult.Cancel;
+                this.Close();
+            }
         }
 
         private void InitializeComponent()
@@ -23,154 +74,165 @@ namespace StudentFeedbackSystem
             this.SuspendLayout();
 
             // Form properties
-            this.Text = $"Feedback - {subjectName}";
-            this.Size = new Size(700, 800);
-            this.StartPosition = FormStartPosition.CenterScreen;
-            this.FormBorderStyle = FormBorderStyle.FixedSingle;
+            this.Text = "Submit Feedback";
+            this.Size = new Size(600, 700);
+            this.StartPosition = FormStartPosition.CenterParent;
+            this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
-            this.AutoScroll = true;
+            this.MinimizeBox = false;
 
-            // Title Label
-            Label lblTitle = new Label
+            // Subject Label
+            lblSubject = new Label
             {
-                Text = $"Feedback Form - {subjectName}",
+                Text = $"Feedback for {subjectName}",
                 Location = new Point(20, 20),
-                Size = new Size(400, 30),
-                Font = new Font("Segoe UI", 15F, FontStyle.Bold)
+                Size = new Size(540, 30),
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold)
             };
 
-            // Initialize arrays for questions
-            string[] questions = new string[]
+            // Instructions
+            Label lblInstructions = new Label
             {
-                "How would you rate the clarity of teaching?",
-                "How would you rate the course content?",
-                "How effective were the teaching methods?",
-                "How would you rate the instructor's availability for doubts?",
-                "How would you rate the overall learning experience?"
+                Text = "Please rate each aspect from 1 (Poor) to 5 (Excellent)",
+                Location = new Point(20, 60),
+                Size = new Size(540, 20),
+                Font = new Font("Segoe UI", 9F)
             };
 
-            // Create question groups and rating buttons
+            // Initialize arrays
             questionGroups = new GroupBox[5];
             ratingButtons = new RadioButton[5][];
-            int yPosition = 70;
 
+            // Create question groups
+            int yPos = 90;
             for (int i = 0; i < 5; i++)
             {
-                // Create group box for each question
                 questionGroups[i] = new GroupBox
                 {
                     Text = questions[i],
-                    Location = new Point(20, yPosition),
-                    Size = new Size(640, 80),
+                    Location = new Point(20, yPos),
+                    Size = new Size(540, 60),
                     Font = new Font("Segoe UI", 9F)
                 };
 
-                // Create radio buttons for ratings
                 ratingButtons[i] = new RadioButton[5];
+                int xPos = 20;
                 for (int j = 0; j < 5; j++)
                 {
                     ratingButtons[i][j] = new RadioButton
                     {
                         Text = (j + 1).ToString(),
-                        Location = new Point(50 + (j * 120), 30),
-                        Size = new Size(100, 20),
+                        Location = new Point(xPos, 25),
+                        Size = new Size(90, 20),
                         Tag = j + 1
                     };
                     questionGroups[i].Controls.Add(ratingButtons[i][j]);
+                    xPos += 100;
                 }
 
-                yPosition += 100;
+                this.Controls.Add(questionGroups[i]);
+                yPos += 80;
             }
 
             // Comments section
             Label lblComments = new Label
             {
-                Text = "Additional Comments:",
-                Location = new Point(20, yPosition),
-                Size = new Size(200, 20),
+                Text = "Additional Comments (Optional):",
+                Location = new Point(20, yPos),
+                Size = new Size(540, 20),
                 Font = new Font("Segoe UI", 9F)
             };
 
             txtComments = new TextBox
             {
-                Location = new Point(20, yPosition + 30),
-                Size = new Size(640, 100),
+                Location = new Point(20, yPos + 25),
+                Size = new Size(540, 100),
                 Multiline = true,
                 ScrollBars = ScrollBars.Vertical,
                 Font = new Font("Segoe UI", 9F)
             };
 
-            // Submit button
+            // Buttons
             btnSubmit = new Button
             {
                 Text = "Submit Feedback",
-                Location = new Point(20, yPosition + 150),
-                Size = new Size(150, 35),
+                Location = new Point(320, yPos + 140),
+                Size = new Size(120, 35),
                 BackColor = Color.FromArgb(0, 122, 204),
                 ForeColor = Color.White,
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold),
                 FlatStyle = FlatStyle.Flat
             };
 
-            // Add event handlers
-            btnSubmit.Click += new EventHandler(btnSubmit_Click);
-
-            // Add controls to form
-            this.Controls.Add(lblTitle);
-            foreach (GroupBox group in questionGroups)
+            btnCancel = new Button
             {
-                this.Controls.Add(group);
-            }
-            this.Controls.Add(lblComments);
-            this.Controls.Add(txtComments);
-            this.Controls.Add(btnSubmit);
+                Text = "Cancel",
+                Location = new Point(450, yPos + 140),
+                Size = new Size(100, 35),
+                Font = new Font("Segoe UI", 9F),
+                FlatStyle = FlatStyle.Flat
+            };
+
+            // Event handlers
+            btnSubmit.Click += new EventHandler(btnSubmit_Click);
+            btnCancel.Click += (s, e) => this.Close();
+
+            // Add remaining controls
+            this.Controls.AddRange(new Control[] {
+                lblSubject,
+                lblInstructions,
+                lblComments,
+                txtComments,
+                btnSubmit,
+                btnCancel
+            });
 
             this.ResumeLayout(false);
         }
 
         private void btnSubmit_Click(object sender, EventArgs e)
         {
-            // Validate all questions are answered
-            for (int i = 0; i < 5; i++)
+            try
             {
-                bool questionAnswered = false;
-                foreach (RadioButton rb in ratingButtons[i])
+                // Validate all questions are answered
+                int[] ratings = new int[5];
+                for (int i = 0; i < 5; i++)
                 {
-                    if (rb.Checked)
+                    bool questionAnswered = false;
+                    foreach (RadioButton rb in ratingButtons[i])
                     {
-                        questionAnswered = true;
-                        break;
+                        if (rb.Checked)
+                        {
+                            ratings[i] = Convert.ToInt32(rb.Tag);
+                            questionAnswered = true;
+                            break;
+                        }
+                    }
+
+                    if (!questionAnswered)
+                    {
+                        MessageBox.Show($"Please answer question {i + 1}.", "Validation Error",
+                            MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
                     }
                 }
 
-                if (!questionAnswered)
+                string comments = txtComments.Text.Trim();
+
+                // Submit feedback
+                if (DBConnection.SubmitFeedback(studentId, subjectId, ratings, comments))
                 {
-                    MessageBox.Show($"Please answer question {i + 1}.", "Validation Error",
-                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
+                    MessageBox.Show("Thank you for your feedback!", "Success",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    this.DialogResult = DialogResult.OK;
+                    this.Close();
                 }
             }
-
-            // Collect ratings
-            int[] ratings = new int[5];
-            for (int i = 0; i < 5; i++)
+            catch (Exception ex)
             {
-                foreach (RadioButton rb in ratingButtons[i])
-                {
-                    if (rb.Checked)
-                    {
-                        ratings[i] = Convert.ToInt32(rb.Tag);
-                        break;
-                    }
-                }
+                MessageBox.Show($"Error submitting feedback: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-
-            string comments = txtComments.Text.Trim();
-
-            // TODO: Save feedback to database
-            MessageBox.Show("Thank you for your feedback!", "Success",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
-            this.Close();
         }
     }
 }
