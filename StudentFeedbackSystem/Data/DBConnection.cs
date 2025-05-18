@@ -1,14 +1,13 @@
 using System;
 using System.Data;
 using System.Data.SqlClient;
-using System.Configuration;
 using System.Windows.Forms;
 
 namespace StudentFeedbackSystem.Data
 {
     public static class DBConnection
     {
-        private static string connectionString = @"Data Source=(local)\SQLEXPRESS;Initial Catalog=StudentFeedbackDB;Integrated Security=True";
+        private static readonly string connectionString = @"Data Source=(local)\SQLEXPRESS;Initial Catalog=StudentFeedbackDB;Integrated Security=True";
 
         public static bool TestConnection()
         {
@@ -20,147 +19,231 @@ namespace StudentFeedbackSystem.Data
                     return true;
                 }
             }
-            catch (Exception)
+            catch
             {
                 return false;
             }
         }
 
-        #region Authentication Methods
-
         public static DataTable ValidateLogin(string loginCode, string userType)
         {
-            string query = @"SELECT UserID, UserName, UserType 
-                           FROM Users 
-                           WHERE LoginCode = @LoginCode 
-                           AND UserType = @UserType";
+            try
+            {
+                string query = @"
+                    SELECT u.UserID, u.UserName, u.UserType
+                    FROM Users u
+                    INNER JOIN LoginCodes lc ON u.LoginCode = lc.Code
+                    WHERE u.LoginCode = @LoginCode 
+                    AND u.UserType = @UserType
+                    AND lc.UserType = @UserType
+                    AND lc.IsUsed = 1";
 
-            SqlParameter[] parameters = {
-                new SqlParameter("@LoginCode", loginCode),
-                new SqlParameter("@UserType", userType)
-            };
+                SqlParameter[] parameters = {
+                    new SqlParameter("@LoginCode", loginCode),
+                    new SqlParameter("@UserType", userType)
+                };
 
-            return ExecuteQuery(query, parameters);
+                DataTable result = ExecuteQuery(query, parameters);
+                
+                if (result.Rows.Count == 0)
+                {
+                    // Check if the code exists but for a different role
+                    query = @"
+                        SELECT u.UserType 
+                        FROM Users u 
+                        INNER JOIN LoginCodes lc ON u.LoginCode = lc.Code
+                        WHERE u.LoginCode = @LoginCode";
+
+                    DataTable wrongRole = ExecuteQuery(query, 
+                        new SqlParameter[] { new SqlParameter("@LoginCode", loginCode) });
+
+                    if (wrongRole.Rows.Count > 0)
+                    {
+                        throw new Exception($"This login code is for a {wrongRole.Rows[0]["UserType"]} account.");
+                    }
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Login validation error: {ex.Message}");
+            }
         }
 
-        #endregion
-
-        #region Student Methods
-
-        public static DataTable GetEnrolledSubjects(int studentId)
+        public static bool HasExistingFeedback(int studentId, int subjectId)
         {
-            string query = @"SELECT s.SubjectID, s.SubjectName, u.UserName as TeacherName
-                           FROM Subjects s
-                           INNER JOIN Enrollments e ON s.SubjectID = e.SubjectID
-                           INNER JOIN Users u ON s.TeacherID = u.UserID
-                           WHERE e.UserID = @StudentID";
+            try
+            {
+                string query = @"
+                    SELECT COUNT(*) 
+                    FROM Feedback f
+                    INNER JOIN Enrollments e ON f.EnrollmentID = e.EnrollmentID
+                    WHERE e.UserID = @StudentID AND e.SubjectID = @SubjectID";
 
-            SqlParameter[] parameters = {
-                new SqlParameter("@StudentID", studentId)
-            };
+                SqlParameter[] parameters = {
+                    new SqlParameter("@StudentID", studentId),
+                    new SqlParameter("@SubjectID", subjectId)
+                };
 
-            return ExecuteQuery(query, parameters);
+                DataTable dt = ExecuteQuery(query, parameters);
+                return Convert.ToInt32(dt.Rows[0][0]) > 0;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error checking existing feedback: {ex.Message}");
+            }
         }
 
-        public static bool SubmitFeedback(int enrollmentId, int[] ratings, string comments)
+        public static DataTable GetStudentSubjects(int studentId)
         {
-            string query = @"INSERT INTO Feedback (EnrollmentID, Q1, Q2, Q3, Q4, Q5, Comments)
-                           VALUES (@EnrollmentID, @Q1, @Q2, @Q3, @Q4, @Q5, @Comments)";
+            try
+            {
+                string query = @"
+                    SELECT s.SubjectID, s.SubjectName,
+                           CASE WHEN f.FeedbackID IS NULL THEN 0 ELSE 1 END as HasFeedback
+                    FROM Subjects s
+                    INNER JOIN Enrollments e ON s.SubjectID = e.SubjectID
+                    LEFT JOIN Feedback f ON e.EnrollmentID = f.EnrollmentID
+                    WHERE e.UserID = @StudentID
+                    ORDER BY s.SubjectName";
 
-            SqlParameter[] parameters = {
-                new SqlParameter("@EnrollmentID", enrollmentId),
-                new SqlParameter("@Q1", ratings[0]),
-                new SqlParameter("@Q2", ratings[1]),
-                new SqlParameter("@Q3", ratings[2]),
-                new SqlParameter("@Q4", ratings[3]),
-                new SqlParameter("@Q5", ratings[4]),
-                new SqlParameter("@Comments", comments)
-            };
-
-            return ExecuteNonQuery(query, parameters) > 0;
+                return ExecuteQuery(query, new SqlParameter("@StudentID", studentId));
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error getting student subjects: {ex.Message}");
+            }
         }
-
-        #endregion
-
-        #region Teacher Methods
 
         public static DataTable GetTeacherSubjects(int teacherId)
         {
-            string query = @"SELECT SubjectID, SubjectName 
-                           FROM Subjects 
-                           WHERE TeacherID = @TeacherID";
+            try
+            {
+                string query = @"
+                    SELECT SubjectID, SubjectName,
+                           (SELECT COUNT(*) FROM Enrollments e 
+                            INNER JOIN Feedback f ON e.EnrollmentID = f.EnrollmentID
+                            WHERE e.SubjectID = s.SubjectID) as FeedbackCount
+                    FROM Subjects s
+                    WHERE TeacherID = @TeacherID
+                    ORDER BY SubjectName";
 
-            SqlParameter[] parameters = {
-                new SqlParameter("@TeacherID", teacherId)
-            };
-
-            return ExecuteQuery(query, parameters);
+                return ExecuteQuery(query, new SqlParameter("@TeacherID", teacherId));
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error getting teacher subjects: {ex.Message}");
+            }
         }
 
-        public static DataTable GetSubjectFeedback(int subjectId)
+        public static DataTable GetTeacherFeedback(int teacherId, string subjectName)
         {
-            string query = @"SELECT f.SubmittedOn, f.Q1, f.Q2, f.Q3, f.Q4, f.Q5, f.Comments
-                           FROM Feedback f
-                           INNER JOIN Enrollments e ON f.EnrollmentID = e.EnrollmentID
-                           WHERE e.SubjectID = @SubjectID
-                           ORDER BY f.SubmittedOn DESC";
+            try
+            {
+                string query = @"
+                    SELECT 
+                        f.SubmittedOn,
+                        f.Q1, f.Q2, f.Q3, f.Q4, f.Q5,
+                        f.Comments
+                    FROM Feedback f
+                    INNER JOIN Enrollments e ON f.EnrollmentID = e.EnrollmentID
+                    INNER JOIN Subjects s ON e.SubjectID = s.SubjectID
+                    WHERE s.TeacherID = @TeacherID
+                    AND s.SubjectName = @SubjectName
+                    ORDER BY f.SubmittedOn DESC";
 
-            SqlParameter[] parameters = {
-                new SqlParameter("@SubjectID", subjectId)
-            };
+                SqlParameter[] parameters = {
+                    new SqlParameter("@TeacherID", teacherId),
+                    new SqlParameter("@SubjectName", subjectName)
+                };
 
-            return ExecuteQuery(query, parameters);
+                return ExecuteQuery(query, parameters);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error getting teacher feedback: {ex.Message}");
+            }
         }
 
-        #endregion
-
-        #region Admin Methods
-
-        public static string GenerateLoginCode(string userType)
+        public static bool SubmitFeedback(int studentId, int subjectId, int[] ratings, string comments)
         {
-            string code = GenerateRandomCode();
-            
-            string query = @"INSERT INTO LoginCodes (Code, UserType, IsUsed)
-                           VALUES (@Code, @UserType, 0)";
+            using (SqlConnection conn = new SqlConnection(connectionString))
+            {
+                conn.Open();
+                using (SqlTransaction transaction = conn.BeginTransaction())
+                {
+                    try
+                    {
+                        // Check for existing feedback within transaction
+                        if (HasExistingFeedback(studentId, subjectId))
+                        {
+                            throw new Exception("You have already submitted feedback for this subject.");
+                        }
 
-            SqlParameter[] parameters = {
-                new SqlParameter("@Code", code),
-                new SqlParameter("@UserType", userType)
-            };
+                        // Get EnrollmentID
+                        string query = @"
+                            SELECT EnrollmentID 
+                            FROM Enrollments 
+                            WHERE UserID = @StudentID AND SubjectID = @SubjectID";
 
-            if (ExecuteNonQuery(query, parameters) > 0)
-                return code;
-            
-            return null;
-        }
+                        SqlCommand cmd = new SqlCommand(query, conn, transaction);
+                        cmd.Parameters.AddWithValue("@StudentID", studentId);
+                        cmd.Parameters.AddWithValue("@SubjectID", subjectId);
 
-        public static DataTable GetAllLoginCodes()
-        {
-            string query = @"SELECT Code, UserType, 
-                           CASE WHEN IsUsed = 1 THEN 'Used' ELSE 'Unused' END as Status,
-                           GeneratedOn
-                           FROM LoginCodes
-                           ORDER BY GeneratedOn DESC";
+                        object enrollmentId = cmd.ExecuteScalar();
+                        if (enrollmentId == null)
+                        {
+                            throw new Exception("Enrollment not found.");
+                        }
 
-            return ExecuteQuery(query);
+                        // Insert feedback
+                        query = @"
+                            INSERT INTO Feedback (EnrollmentID, Q1, Q2, Q3, Q4, Q5, Comments)
+                            VALUES (@EnrollmentID, @Q1, @Q2, @Q3, @Q4, @Q5, @Comments)";
+
+                        cmd = new SqlCommand(query, conn, transaction);
+                        cmd.Parameters.AddWithValue("@EnrollmentID", enrollmentId);
+                        cmd.Parameters.AddWithValue("@Q1", ratings[0]);
+                        cmd.Parameters.AddWithValue("@Q2", ratings[1]);
+                        cmd.Parameters.AddWithValue("@Q3", ratings[2]);
+                        cmd.Parameters.AddWithValue("@Q4", ratings[3]);
+                        cmd.Parameters.AddWithValue("@Q5", ratings[4]);
+                        cmd.Parameters.AddWithValue("@Comments", comments);
+
+                        cmd.ExecuteNonQuery();
+                        transaction.Commit();
+                        return true;
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
         }
 
         public static DataTable GetSystemStats()
         {
-            string query = @"SELECT 
-                           (SELECT COUNT(*) FROM Users WHERE UserType = 'Student') as StudentCount,
-                           (SELECT COUNT(*) FROM Users WHERE UserType = 'Teacher') as TeacherCount,
-                           (SELECT COUNT(*) FROM Subjects) as SubjectCount,
-                           (SELECT COUNT(*) FROM Feedback) as FeedbackCount";
+            try
+            {
+                string query = @"
+                    SELECT 
+                        (SELECT COUNT(*) FROM Users WHERE UserType = 'Student') as StudentCount,
+                        (SELECT COUNT(*) FROM Users WHERE UserType = 'Teacher') as TeacherCount,
+                        (SELECT COUNT(*) FROM Subjects) as SubjectCount,
+                        (SELECT COUNT(*) FROM Feedback) as FeedbackCount";
 
-            return ExecuteQuery(query);
+                return ExecuteQuery(query);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error getting system stats: {ex.Message}");
+            }
         }
 
-        #endregion
-
-        #region Helper Methods
-
-        private static DataTable ExecuteQuery(string query, SqlParameter[] parameters = null)
+        private static DataTable ExecuteQuery(string query, params SqlParameter[] parameters)
         {
             DataTable dt = new DataTable();
             try
@@ -181,13 +264,12 @@ namespace StudentFeedbackSystem.Data
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Database error: {ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                throw new Exception($"Database error: {ex.Message}");
             }
             return dt;
         }
 
-        private static int ExecuteNonQuery(string query, SqlParameter[] parameters = null)
+        private static int ExecuteNonQuery(string query, params SqlParameter[] parameters)
         {
             try
             {
@@ -205,20 +287,8 @@ namespace StudentFeedbackSystem.Data
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Database error: {ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return 0;
+                throw new Exception($"Database error: {ex.Message}");
             }
         }
-
-        private static string GenerateRandomCode()
-        {
-            Random random = new Random();
-            const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-            return new string(Enumerable.Repeat(chars, 8)
-                .Select(s => s[random.Next(s.Length)]).ToArray());
-        }
-
-        #endregion
     }
 }
