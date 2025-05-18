@@ -2,19 +2,45 @@ using System;
 using System.Drawing;
 using System.Windows.Forms;
 using System.Data;
+using System.Data.SqlClient;
+using StudentFeedbackSystem.Data;
 
-namespace StudentFeedbackSystem
+namespace StudentFeedbackSystem.Forms
 {
     public partial class FormTeacherDashboard : Form
     {
+        private readonly int teacherId;
         private DataGridView dgvFeedback;
         private ComboBox cmbSubjects;
         private Label lblAverageRating;
         private Button btnRefresh;
+        private Label lblWelcome;
+        private Label lblFeedbackCount;
+        private Timer refreshTimer;
 
-        public FormTeacherDashboard()
+        public FormTeacherDashboard(int teacherId)
         {
+            this.teacherId = teacherId;
             InitializeComponent();
+            SetupRefreshTimer();
+            LoadTeacherName();
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            LoadSubjects();
+            LoadFeedbackData();
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+            if (refreshTimer != null)
+            {
+                refreshTimer.Stop();
+                refreshTimer.Dispose();
+            }
         }
 
         private void InitializeComponent()
@@ -22,22 +48,22 @@ namespace StudentFeedbackSystem
             this.SuspendLayout();
 
             // Form properties
-            this.Text = "Teacher Dashboard - Student Feedback System";
+            this.Text = "Teacher Dashboard";
             this.Size = new Size(1000, 600);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
             this.MaximizeBox = false;
 
             // Welcome Label
-            Label lblWelcome = new Label
+            lblWelcome = new Label
             {
-                Text = "Teacher Dashboard",
+                Text = "Welcome, Teacher",
                 Location = new Point(20, 20),
-                Size = new Size(300, 30),
+                Size = new Size(400, 30),
                 Font = new Font("Segoe UI", 15F, FontStyle.Bold)
             };
 
-            // Subject Filter
+            // Subject Selection
             Label lblSubject = new Label
             {
                 Text = "Select Subject:",
@@ -54,7 +80,6 @@ namespace StudentFeedbackSystem
                 Font = new Font("Segoe UI", 9F)
             };
 
-            // Refresh Button
             btnRefresh = new Button
             {
                 Text = "Refresh",
@@ -66,7 +91,6 @@ namespace StudentFeedbackSystem
                 FlatStyle = FlatStyle.Flat
             };
 
-            // Average Rating Label
             lblAverageRating = new Label
             {
                 Text = "Average Rating: N/A",
@@ -75,7 +99,15 @@ namespace StudentFeedbackSystem
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold)
             };
 
-            // Feedback DataGridView
+            lblFeedbackCount = new Label
+            {
+                Text = "Total Feedback: 0",
+                Location = new Point(720, 70),
+                Size = new Size(200, 25),
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+            };
+
+            // Feedback Grid
             dgvFeedback = new DataGridView
             {
                 Location = new Point(20, 110),
@@ -87,67 +119,24 @@ namespace StudentFeedbackSystem
                 ReadOnly = true,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                MultiSelect = false
+                MultiSelect = false,
+                Font = new Font("Segoe UI", 9F)
             };
 
-            // Configure DataGridView columns
             dgvFeedback.Columns.AddRange(new DataGridViewColumn[]
             {
-                new DataGridViewTextBoxColumn 
-                { 
-                    Name = "Date",
-                    HeaderText = "Date",
-                    Width = 100
-                },
-                new DataGridViewTextBoxColumn 
-                { 
-                    Name = "Q1",
-                    HeaderText = "Teaching Clarity",
-                    Width = 100
-                },
-                new DataGridViewTextBoxColumn 
-                { 
-                    Name = "Q2",
-                    HeaderText = "Course Content",
-                    Width = 100
-                },
-                new DataGridViewTextBoxColumn 
-                { 
-                    Name = "Q3",
-                    HeaderText = "Teaching Methods",
-                    Width = 100
-                },
-                new DataGridViewTextBoxColumn 
-                { 
-                    Name = "Q4",
-                    HeaderText = "Availability",
-                    Width = 100
-                },
-                new DataGridViewTextBoxColumn 
-                { 
-                    Name = "Q5",
-                    HeaderText = "Overall Experience",
-                    Width = 100
-                },
-                new DataGridViewTextBoxColumn 
-                { 
-                    Name = "Comments",
-                    HeaderText = "Comments",
-                    Width = 300
-                }
+                new DataGridViewTextBoxColumn { Name = "Date", HeaderText = "Date", Width = 120 },
+                new DataGridViewTextBoxColumn { Name = "Q1", HeaderText = "Teaching Clarity", Width = 100 },
+                new DataGridViewTextBoxColumn { Name = "Q2", HeaderText = "Course Content", Width = 100 },
+                new DataGridViewTextBoxColumn { Name = "Q3", HeaderText = "Teaching Methods", Width = 100 },
+                new DataGridViewTextBoxColumn { Name = "Q4", HeaderText = "Availability", Width = 100 },
+                new DataGridViewTextBoxColumn { Name = "Q5", HeaderText = "Overall Experience", Width = 100 },
+                new DataGridViewTextBoxColumn { Name = "Comments", HeaderText = "Comments", Width = 300 }
             });
 
-            // Add dummy data (replace with actual data from database)
-            cmbSubjects.Items.AddRange(new string[] {
-                "Mathematics",
-                "Physics",
-                "Computer Science"
-            });
-
-            // Add event handlers
-            this.Load += new EventHandler(FormTeacherDashboard_Load);
-            cmbSubjects.SelectedIndexChanged += new EventHandler(cmbSubjects_SelectedIndexChanged);
-            btnRefresh.Click += new EventHandler(btnRefresh_Click);
+            // Event handlers
+            cmbSubjects.SelectedIndexChanged += (s, e) => LoadFeedbackData();
+            btnRefresh.Click += (s, e) => LoadFeedbackData();
 
             // Add controls to form
             this.Controls.AddRange(new Control[] {
@@ -156,55 +145,138 @@ namespace StudentFeedbackSystem
                 cmbSubjects,
                 btnRefresh,
                 lblAverageRating,
+                lblFeedbackCount,
                 dgvFeedback
             });
 
             this.ResumeLayout(false);
         }
 
-        private void FormTeacherDashboard_Load(object sender, EventArgs e)
+        private void SetupRefreshTimer()
         {
-            if (cmbSubjects.Items.Count > 0)
+            refreshTimer = new Timer
             {
-                cmbSubjects.SelectedIndex = 0;
+                Interval = 30000 // Refresh every 30 seconds
+            };
+            refreshTimer.Tick += (s, e) => LoadFeedbackData();
+            refreshTimer.Start();
+        }
+
+        private void LoadTeacherName()
+        {
+            try
+            {
+                string query = "SELECT UserName FROM Users WHERE UserID = @TeacherID";
+                SqlParameter[] parameters = {
+                    new SqlParameter("@TeacherID", teacherId)
+                };
+
+                DataTable dt = DBConnection.ExecuteQuery(query, parameters);
+                if (dt.Rows.Count > 0)
+                {
+                    lblWelcome.Text = $"Welcome, {dt.Rows[0]["UserName"]}";
+                }
             }
-            LoadFeedbackData();
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error loading teacher info: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
-        private void cmbSubjects_SelectedIndexChanged(object sender, EventArgs e)
+        private void LoadSubjects()
         {
-            LoadFeedbackData();
-        }
+            try
+            {
+                DataTable dt = DBConnection.GetTeacherSubjects(teacherId);
+                cmbSubjects.Items.Clear();
 
-        private void btnRefresh_Click(object sender, EventArgs e)
-        {
-            LoadFeedbackData();
+                foreach (DataRow row in dt.Rows)
+                {
+                    string subjectName = row["SubjectName"].ToString();
+                    int feedbackCount = Convert.ToInt32(row["FeedbackCount"]);
+                    cmbSubjects.Items.Add(new SubjectItem(subjectName, feedbackCount));
+                }
+
+                if (cmbSubjects.Items.Count > 0)
+                {
+                    cmbSubjects.SelectedIndex = 0;
+                }
+                else
+                {
+                    MessageBox.Show("No subjects found for this teacher.", "Information",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error loading subjects: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void LoadFeedbackData()
         {
-            // TODO: Load actual feedback data from database
-            // For now, adding sample data
-            dgvFeedback.Rows.Clear();
+            if (cmbSubjects.SelectedItem == null) return;
 
-            if (cmbSubjects.SelectedItem != null)
+            try
             {
-                // Sample data
-                dgvFeedback.Rows.Add(
-                    DateTime.Now.ToShortDateString(),
-                    4, 5, 4, 5, 4,
-                    "Great teaching methods!"
-                );
+                SubjectItem selectedSubject = (SubjectItem)cmbSubjects.SelectedItem;
+                DataTable dt = DBConnection.GetTeacherFeedback(teacherId, selectedSubject.Name);
+                
+                dgvFeedback.Rows.Clear();
+                double totalRating = 0;
+                int ratingCount = 0;
 
-                dgvFeedback.Rows.Add(
-                    DateTime.Now.AddDays(-1).ToShortDateString(),
-                    5, 4, 5, 4, 5,
-                    "Very helpful instructor"
-                );
+                foreach (DataRow row in dt.Rows)
+                {
+                    dgvFeedback.Rows.Add(
+                        Convert.ToDateTime(row["SubmittedOn"]).ToString("yyyy-MM-dd HH:mm"),
+                        row["Q1"],
+                        row["Q2"],
+                        row["Q3"],
+                        row["Q4"],
+                        row["Q5"],
+                        row["Comments"]
+                    );
 
-                // Calculate and display average rating
-                double avgRating = 4.5; // Replace with actual calculation
-                lblAverageRating.Text = $"Average Rating: {avgRating:F1}/5.0";
+                    double feedbackAvg = (
+                        Convert.ToDouble(row["Q1"]) +
+                        Convert.ToDouble(row["Q2"]) +
+                        Convert.ToDouble(row["Q3"]) +
+                        Convert.ToDouble(row["Q4"]) +
+                        Convert.ToDouble(row["Q5"])
+                    ) / 5.0;
+
+                    totalRating += feedbackAvg;
+                    ratingCount++;
+                }
+
+                double overallAverage = ratingCount > 0 ? totalRating / ratingCount : 0;
+                lblAverageRating.Text = $"Average Rating: {overallAverage:F2}/5.0";
+                lblFeedbackCount.Text = $"Total Feedback: {ratingCount}";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error loading feedback: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private class SubjectItem
+        {
+            public string Name { get; }
+            public int FeedbackCount { get; }
+
+            public SubjectItem(string name, int feedbackCount)
+            {
+                Name = name;
+                FeedbackCount = feedbackCount;
+            }
+
+            public override string ToString()
+            {
+                return $"{Name} ({FeedbackCount} feedback)";
             }
         }
     }
