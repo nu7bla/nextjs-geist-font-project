@@ -2,8 +2,9 @@ using System;
 using System.Drawing;
 using System.Windows.Forms;
 using System.Data;
+using StudentFeedbackSystem.Data;
 
-namespace StudentFeedbackSystem
+namespace StudentFeedbackSystem.Forms
 {
     public partial class FormAdminDashboard : Form
     {
@@ -12,10 +13,16 @@ namespace StudentFeedbackSystem
         private ComboBox cmbUserType;
         private Button btnGenerateCode;
         private TextBox txtGeneratedCode;
+        private Label lblStudentCount;
+        private Label lblTeacherCount;
+        private Label lblSubjectCount;
+        private Label lblFeedbackCount;
+        private Timer refreshTimer;
 
         public FormAdminDashboard()
         {
             InitializeComponent();
+            SetupRefreshTimer();
         }
 
         private void InitializeComponent()
@@ -23,129 +30,104 @@ namespace StudentFeedbackSystem
             this.SuspendLayout();
 
             // Form properties
-            this.Text = "Admin Dashboard - Student Feedback System";
-            this.Size = new Size(1000, 600);
+            this.Text = "Admin Dashboard";
+            this.Size = new Size(800, 600);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
             this.MaximizeBox = false;
 
-            // Create TabControl
+            // Tab Control
             tabControl = new TabControl
             {
-                Location = new Point(10, 10),
-                Size = new Size(965, 540),
+                Location = new Point(20, 20),
+                Size = new Size(740, 520),
                 Font = new Font("Segoe UI", 9F)
             };
 
-            // Create Dashboard Tab
-            TabPage tabDashboard = new TabPage("Dashboard");
-            SetupDashboardTab(tabDashboard);
-
-            // Create Code Generation Tab
-            TabPage tabCodeGeneration = new TabPage("Code Generation");
-            SetupCodeGenerationTab(tabCodeGeneration);
-
-            // Add tabs to TabControl
-            tabControl.TabPages.AddRange(new TabPage[] {
-                tabDashboard,
-                tabCodeGeneration
-            });
-
-            // Add TabControl to form
-            this.Controls.Add(tabControl);
-
-            this.ResumeLayout(false);
-        }
-
-        private void SetupDashboardTab(TabPage tab)
-        {
+            // Statistics Tab
+            TabPage tabStats = new TabPage("System Statistics");
+            
             // Statistics Labels
             Label lblStats = new Label
             {
-                Text = "System Statistics",
+                Text = "Current System Statistics",
                 Location = new Point(20, 20),
-                Size = new Size(300, 30),
-                Font = new Font("Segoe UI", 15F, FontStyle.Bold)
+                Size = new Size(680, 30),
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold)
             };
 
-            // Create statistics panels
-            TableLayoutPanel statsPanel = new TableLayoutPanel
+            lblStudentCount = new Label
             {
-                Location = new Point(20, 60),
-                Size = new Size(900, 100),
-                ColumnCount = 4,
-                RowCount = 1,
-                BackColor = Color.Transparent
+                Text = "Total Students: 0",
+                Location = new Point(20, 70),
+                Size = new Size(200, 25),
+                Font = new Font("Segoe UI", 10F)
             };
 
-            // Add stat boxes
-            AddStatBox(statsPanel, "Total Students", "0", 0);
-            AddStatBox(statsPanel, "Total Teachers", "0", 1);
-            AddStatBox(statsPanel, "Total Subjects", "0", 2);
-            AddStatBox(statsPanel, "Total Feedback", "0", 3);
-
-            // Add controls to tab
-            tab.Controls.Add(lblStats);
-            tab.Controls.Add(statsPanel);
-        }
-
-        private void AddStatBox(TableLayoutPanel panel, string title, string value, int column)
-        {
-            Panel statBox = new Panel
+            lblTeacherCount = new Label
             {
-                Size = new Size(200, 80),
-                BackColor = Color.FromArgb(240, 240, 240),
-                Margin = new Padding(10)
+                Text = "Total Teachers: 0",
+                Location = new Point(20, 105),
+                Size = new Size(200, 25),
+                Font = new Font("Segoe UI", 10F)
             };
 
-            Label lblTitle = new Label
+            lblSubjectCount = new Label
             {
-                Text = title,
-                Location = new Point(10, 10),
-                Size = new Size(180, 20),
-                Font = new Font("Segoe UI", 9F)
+                Text = "Total Subjects: 0",
+                Location = new Point(20, 140),
+                Size = new Size(200, 25),
+                Font = new Font("Segoe UI", 10F)
             };
 
-            Label lblValue = new Label
+            lblFeedbackCount = new Label
             {
-                Text = value,
-                Location = new Point(10, 35),
-                Size = new Size(180, 30),
-                Font = new Font("Segoe UI", 16F, FontStyle.Bold),
-                TextAlign = ContentAlignment.MiddleCenter
+                Text = "Total Feedback Submissions: 0",
+                Location = new Point(20, 175),
+                Size = new Size(200, 25),
+                Font = new Font("Segoe UI", 10F)
             };
 
-            statBox.Controls.Add(lblTitle);
-            statBox.Controls.Add(lblValue);
-            panel.Controls.Add(statBox, column, 0);
-        }
+            tabStats.Controls.AddRange(new Control[] {
+                lblStats,
+                lblStudentCount,
+                lblTeacherCount,
+                lblSubjectCount,
+                lblFeedbackCount
+            });
 
-        private void SetupCodeGenerationTab(TabPage tab)
-        {
-            // User Type Selection
+            // Login Codes Tab
+            TabPage tabCodes = new TabPage("Login Codes");
+
+            // Code Generation Controls
+            Label lblGenerate = new Label
+            {
+                Text = "Generate New Login Code",
+                Location = new Point(20, 20),
+                Size = new Size(680, 30),
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold)
+            };
+
             Label lblUserType = new Label
             {
-                Text = "Select User Type:",
-                Location = new Point(20, 20),
-                Size = new Size(100, 25),
+                Text = "User Type:",
+                Location = new Point(20, 60),
+                Size = new Size(80, 25),
                 Font = new Font("Segoe UI", 9F)
             };
 
             cmbUserType = new ComboBox
             {
-                Location = new Point(130, 20),
-                Size = new Size(200, 25),
+                Location = new Point(100, 60),
+                Size = new Size(150, 25),
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Font = new Font("Segoe UI", 9F)
             };
-            cmbUserType.Items.AddRange(new string[] { "Student", "Teacher", "Admin" });
-            cmbUserType.SelectedIndex = 0;
 
-            // Generate Code Button
             btnGenerateCode = new Button
             {
                 Text = "Generate Code",
-                Location = new Point(350, 20),
+                Location = new Point(270, 60),
                 Size = new Size(120, 25),
                 BackColor = Color.FromArgb(0, 122, 204),
                 ForeColor = Color.White,
@@ -153,20 +135,20 @@ namespace StudentFeedbackSystem
                 FlatStyle = FlatStyle.Flat
             };
 
-            // Generated Code Display
             txtGeneratedCode = new TextBox
             {
-                Location = new Point(490, 20),
-                Size = new Size(200, 25),
+                Location = new Point(410, 60),
+                Size = new Size(150, 25),
                 ReadOnly = true,
-                Font = new Font("Segoe UI", 9F)
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                TextAlign = HorizontalAlignment.Center
             };
 
             // Generated Codes Grid
             dgvCodes = new DataGridView
             {
-                Location = new Point(20, 60),
-                Size = new Size(900, 400),
+                Location = new Point(20, 100),
+                Size = new Size(680, 370),
                 BackgroundColor = Color.White,
                 BorderStyle = BorderStyle.None,
                 AllowUserToAddRows = false,
@@ -174,75 +156,149 @@ namespace StudentFeedbackSystem
                 ReadOnly = true,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                MultiSelect = false
+                MultiSelect = false,
+                Font = new Font("Segoe UI", 9F)
             };
 
-            // Configure DataGridView columns
             dgvCodes.Columns.AddRange(new DataGridViewColumn[]
             {
-                new DataGridViewTextBoxColumn 
-                { 
-                    Name = "Code",
-                    HeaderText = "Login Code",
-                    Width = 150
-                },
-                new DataGridViewTextBoxColumn 
-                { 
-                    Name = "UserType",
-                    HeaderText = "User Type",
-                    Width = 100
-                },
-                new DataGridViewTextBoxColumn 
-                { 
-                    Name = "Status",
-                    HeaderText = "Status",
-                    Width = 100
-                },
-                new DataGridViewTextBoxColumn 
-                { 
-                    Name = "GeneratedOn",
-                    HeaderText = "Generated On",
-                    Width = 150
-                }
+                new DataGridViewTextBoxColumn { Name = "Code", HeaderText = "Login Code", Width = 100 },
+                new DataGridViewTextBoxColumn { Name = "UserType", HeaderText = "User Type", Width = 100 },
+                new DataGridViewTextBoxColumn { Name = "Status", HeaderText = "Status", Width = 80 },
+                new DataGridViewTextBoxColumn { Name = "GeneratedOn", HeaderText = "Generated On", Width = 150 }
             });
 
-            // Add event handlers
-            btnGenerateCode.Click += new EventHandler(btnGenerateCode_Click);
-
-            // Add controls to tab
-            tab.Controls.AddRange(new Control[] {
+            tabCodes.Controls.AddRange(new Control[] {
+                lblGenerate,
                 lblUserType,
                 cmbUserType,
                 btnGenerateCode,
                 txtGeneratedCode,
                 dgvCodes
             });
+
+            // Add tabs to tab control
+            tabControl.TabPages.AddRange(new TabPage[] { tabStats, tabCodes });
+
+            // Add items to combo box
+            cmbUserType.Items.AddRange(new string[] { "Student", "Teacher" });
+            cmbUserType.SelectedIndex = 0;
+
+            // Event handlers
+            btnGenerateCode.Click += new EventHandler(btnGenerateCode_Click);
+            this.Load += new EventHandler(FormAdminDashboard_Load);
+
+            // Add tab control to form
+            this.Controls.Add(tabControl);
+
+            this.ResumeLayout(false);
+        }
+
+        private void SetupRefreshTimer()
+        {
+            refreshTimer = new Timer
+            {
+                Interval = 5000 // Refresh every 5 seconds
+            };
+            refreshTimer.Tick += (s, e) => LoadStatistics();
+            refreshTimer.Start();
+        }
+
+        private void LoadStatistics()
+        {
+            try
+            {
+                DataTable dt = DBConnection.GetSystemStats();
+                if (dt.Rows.Count > 0)
+                {
+                    DataRow row = dt.Rows[0];
+                    lblStudentCount.Text = $"Total Students: {row["StudentCount"]}";
+                    lblTeacherCount.Text = $"Total Teachers: {row["TeacherCount"]}";
+                    lblSubjectCount.Text = $"Total Subjects: {row["SubjectCount"]}";
+                    lblFeedbackCount.Text = $"Total Feedback Submissions: {row["FeedbackCount"]}";
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error loading statistics: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void LoadGeneratedCodes()
+        {
+            try
+            {
+                string query = @"
+                    SELECT Code, UserType, 
+                           CASE WHEN IsUsed = 1 THEN 'Used' ELSE 'Unused' END as Status,
+                           GeneratedOn
+                    FROM LoginCodes
+                    ORDER BY GeneratedOn DESC";
+
+                DataTable dt = DBConnection.ExecuteQuery(query);
+                dgvCodes.Rows.Clear();
+
+                foreach (DataRow row in dt.Rows)
+                {
+                    dgvCodes.Rows.Add(
+                        row["Code"],
+                        row["UserType"],
+                        row["Status"],
+                        Convert.ToDateTime(row["GeneratedOn"]).ToString("yyyy-MM-dd HH:mm")
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error loading codes: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void btnGenerateCode_Click(object sender, EventArgs e)
         {
-            string userType = cmbUserType.SelectedItem.ToString();
-            
-            // Generate a random code (replace with your own logic)
-            string code = GenerateRandomCode();
-            
-            // Display the generated code
-            txtGeneratedCode.Text = code;
+            try
+            {
+                if (cmbUserType.SelectedItem == null)
+                {
+                    MessageBox.Show("Please select a user type.", "Validation Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
 
-            // Add to grid (replace with database insertion)
-            dgvCodes.Rows.Insert(0, code, userType, "Unused", DateTime.Now.ToString());
+                string userType = cmbUserType.SelectedItem.ToString();
+                string query = "EXEC sp_GenerateLoginCode @UserType";
+                SqlParameter[] parameters = {
+                    new SqlParameter("@UserType", userType)
+                };
 
-            MessageBox.Show($"New login code generated for {userType}:\n{code}", 
-                "Code Generated", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                DataTable dt = DBConnection.ExecuteQuery(query, parameters);
+                if (dt.Rows.Count > 0)
+                {
+                    string code = dt.Rows[0]["GeneratedCode"].ToString();
+                    txtGeneratedCode.Text = code;
+                    LoadGeneratedCodes();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error generating code: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
-        private string GenerateRandomCode()
+        private void FormAdminDashboard_Load(object sender, EventArgs e)
         {
-            // Generate a random 8-character code
-            Random random = new Random();
-            const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-            return new string(Enumerable.Repeat(chars, 8)
-                .Select(s => s[random.Next(s.Length)]).ToArray());
+            LoadStatistics();
+            LoadGeneratedCodes();
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+            refreshTimer?.Stop();
+            refreshTimer?.Dispose();
         }
     }
 }
