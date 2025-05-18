@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Windows.Forms;
 using System.Data;
+using System.Data.SqlClient;
 using StudentFeedbackSystem.Data;
 
 namespace StudentFeedbackSystem.Forms
@@ -10,8 +11,13 @@ namespace StudentFeedbackSystem.Forms
     {
         private TabControl tabControl;
         private DataGridView dgvCodes;
+        private DataGridView dgvSubjects;
         private ComboBox cmbUserType;
+        private ComboBox cmbTeachers;
+        private TextBox txtSubjectName;
         private Button btnGenerateCode;
+        private Button btnAddSubject;
+        private Button btnDeleteSubject;
         private TextBox txtGeneratedCode;
         private Label lblStudentCount;
         private Label lblTeacherCount;
@@ -22,7 +28,41 @@ namespace StudentFeedbackSystem.Forms
         public FormAdminDashboard()
         {
             InitializeComponent();
-            SetupRefreshTimer();
+            this.Load += new EventHandler(FormAdminDashboard_Load);
+        }
+
+        private void FormAdminDashboard_Load(object sender, EventArgs e)
+        {
+            LoadStatistics();
+            LoadGeneratedCodes();
+            LoadTeachers(); // Load teachers for the combobox
+            LoadSubjects();
+        }
+
+        private void LoadTeachers()
+        {
+            try
+            {
+                DataTable dt = DBConnection.GetAvailableTeachers();
+                
+                // Clear existing items
+                if (cmbTeachers.Items.Count > 0)
+                    cmbTeachers.Items.Clear();
+
+                // Set up the combobox
+                cmbTeachers.DisplayMember = "UserName";
+                cmbTeachers.ValueMember = "UserID";
+                cmbTeachers.DataSource = dt;
+
+                // Select the first item if available
+                if (dt.Rows.Count > 0)
+                    cmbTeachers.SelectedIndex = 0;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error loading teachers: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void InitializeComponent()
@@ -31,7 +71,7 @@ namespace StudentFeedbackSystem.Forms
 
             // Form properties
             this.Text = "Admin Dashboard";
-            this.Size = new Size(800, 600);
+            this.Size = new Size(1000, 700);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
             this.MaximizeBox = false;
@@ -40,14 +80,28 @@ namespace StudentFeedbackSystem.Forms
             tabControl = new TabControl
             {
                 Location = new Point(20, 20),
-                Size = new Size(740, 520),
+                Size = new Size(940, 620),
                 Font = new Font("Segoe UI", 9F)
             };
 
-            // Statistics Tab
+            // Create tabs
+            TabPage tabStats = CreateStatisticsTab();
+            TabPage tabCodes = CreateLoginCodesTab();
+            TabPage tabSubjects = CreateSubjectsTab();
+
+            // Add tabs to tab control
+            tabControl.TabPages.AddRange(new TabPage[] { tabStats, tabCodes, tabSubjects });
+
+            // Add tab control to form
+            this.Controls.Add(tabControl);
+
+            this.ResumeLayout(false);
+        }
+
+        private TabPage CreateStatisticsTab()
+        {
             TabPage tabStats = new TabPage("System Statistics");
             
-            // Statistics Labels
             Label lblStats = new Label
             {
                 Text = "Current System Statistics",
@@ -96,10 +150,13 @@ namespace StudentFeedbackSystem.Forms
                 lblFeedbackCount
             });
 
-            // Login Codes Tab
+            return tabStats;
+        }
+
+        private TabPage CreateLoginCodesTab()
+        {
             TabPage tabCodes = new TabPage("Login Codes");
 
-            // Code Generation Controls
             Label lblGenerate = new Label
             {
                 Text = "Generate New Login Code",
@@ -112,16 +169,14 @@ namespace StudentFeedbackSystem.Forms
             {
                 Text = "User Type:",
                 Location = new Point(20, 60),
-                Size = new Size(80, 25),
-                Font = new Font("Segoe UI", 9F)
+                Size = new Size(80, 25)
             };
 
             cmbUserType = new ComboBox
             {
                 Location = new Point(100, 60),
                 Size = new Size(150, 25),
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                Font = new Font("Segoe UI", 9F)
+                DropDownStyle = ComboBoxStyle.DropDownList
             };
 
             btnGenerateCode = new Button
@@ -131,7 +186,6 @@ namespace StudentFeedbackSystem.Forms
                 Size = new Size(120, 25),
                 BackColor = Color.FromArgb(0, 122, 204),
                 ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9F),
                 FlatStyle = FlatStyle.Flat
             };
 
@@ -140,33 +194,34 @@ namespace StudentFeedbackSystem.Forms
                 Location = new Point(410, 60),
                 Size = new Size(150, 25),
                 ReadOnly = true,
-                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                TextAlign = HorizontalAlignment.Center
+                TextAlign = HorizontalAlignment.Center,
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold)
             };
 
-            // Generated Codes Grid
             dgvCodes = new DataGridView
             {
                 Location = new Point(20, 100),
-                Size = new Size(680, 370),
+                Size = new Size(880, 470),
                 BackgroundColor = Color.White,
                 BorderStyle = BorderStyle.None,
                 AllowUserToAddRows = false,
-                AllowUserToDeleteRows = false,
                 ReadOnly = true,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                MultiSelect = false,
-                Font = new Font("Segoe UI", 9F)
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect
             };
 
             dgvCodes.Columns.AddRange(new DataGridViewColumn[]
             {
-                new DataGridViewTextBoxColumn { Name = "Code", HeaderText = "Login Code", Width = 100 },
-                new DataGridViewTextBoxColumn { Name = "UserType", HeaderText = "User Type", Width = 100 },
-                new DataGridViewTextBoxColumn { Name = "Status", HeaderText = "Status", Width = 80 },
-                new DataGridViewTextBoxColumn { Name = "GeneratedOn", HeaderText = "Generated On", Width = 150 }
+                new DataGridViewTextBoxColumn { Name = "Code", HeaderText = "Login Code" },
+                new DataGridViewTextBoxColumn { Name = "UserType", HeaderText = "User Type" },
+                new DataGridViewTextBoxColumn { Name = "Status", HeaderText = "Status" },
+                new DataGridViewTextBoxColumn { Name = "GeneratedOn", HeaderText = "Generated On" }
             });
+
+            cmbUserType.Items.AddRange(new string[] { "Student", "Teacher" });
+            cmbUserType.SelectedIndex = 0;
+
+            btnGenerateCode.Click += new EventHandler(btnGenerateCode_Click);
 
             tabCodes.Controls.AddRange(new Control[] {
                 lblGenerate,
@@ -177,30 +232,124 @@ namespace StudentFeedbackSystem.Forms
                 dgvCodes
             });
 
-            // Add tabs to tab control
-            tabControl.TabPages.AddRange(new TabPage[] { tabStats, tabCodes });
+            return tabCodes;
+        }
 
-            // Add items to combo box
-            cmbUserType.Items.AddRange(new string[] { "Student", "Teacher" });
-            cmbUserType.SelectedIndex = 0;
+        private TabPage CreateSubjectsTab()
+        {
+            TabPage tabSubjects = new TabPage("Manage Subjects");
 
-            // Event handlers
-            btnGenerateCode.Click += new EventHandler(btnGenerateCode_Click);
-            this.Load += new EventHandler(FormAdminDashboard_Load);
+            Label lblSubjects = new Label
+            {
+                Text = "Subject Management",
+                Location = new Point(20, 20),
+                Size = new Size(680, 30),
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold)
+            };
 
-            // Add tab control to form
-            this.Controls.Add(tabControl);
+            // Add Subject Controls
+            Label lblTeacher = new Label
+            {
+                Text = "Teacher:",
+                Location = new Point(20, 60),
+                Size = new Size(80, 25),
+                Font = new Font("Segoe UI", 9F)
+            };
 
-            this.ResumeLayout(false);
+            cmbTeachers = new ComboBox
+            {
+                Location = new Point(100, 60),
+                Size = new Size(200, 25),
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Font = new Font("Segoe UI", 9F)
+            };
+
+            Label lblSubjectName = new Label
+            {
+                Text = "Subject Name:",
+                Location = new Point(320, 60),
+                Size = new Size(90, 25),
+                Font = new Font("Segoe UI", 9F)
+            };
+
+            txtSubjectName = new TextBox
+            {
+                Location = new Point(410, 60),
+                Size = new Size(200, 25),
+                Font = new Font("Segoe UI", 9F)
+            };
+
+            btnAddSubject = new Button
+            {
+                Text = "Add Subject",
+                Location = new Point(620, 60),
+                Size = new Size(100, 25),
+                BackColor = Color.FromArgb(0, 122, 204),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9F),
+                FlatStyle = FlatStyle.Flat
+            };
+
+            btnDeleteSubject = new Button
+            {
+                Text = "Delete Subject",
+                Location = new Point(730, 60),
+                Size = new Size(100, 25),
+                BackColor = Color.FromArgb(220, 53, 69),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9F),
+                FlatStyle = FlatStyle.Flat
+            };
+
+            dgvSubjects = new DataGridView
+            {
+                Location = new Point(20, 100),
+                Size = new Size(880, 470),
+                BackgroundColor = Color.White,
+                BorderStyle = BorderStyle.None,
+                AllowUserToAddRows = false,
+                ReadOnly = true,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                MultiSelect = false,
+                Font = new Font("Segoe UI", 9F)
+            };
+
+            dgvSubjects.Columns.AddRange(new DataGridViewColumn[]
+            {
+                new DataGridViewTextBoxColumn { Name = "SubjectID", HeaderText = "ID", Visible = false },
+                new DataGridViewTextBoxColumn { Name = "SubjectName", HeaderText = "Subject Name" },
+                new DataGridViewTextBoxColumn { Name = "TeacherName", HeaderText = "Teacher" },
+                new DataGridViewTextBoxColumn { Name = "EnrollmentCount", HeaderText = "Enrollments" },
+                new DataGridViewTextBoxColumn { Name = "FeedbackCount", HeaderText = "Feedback" }
+            });
+
+            btnAddSubject.Click += new EventHandler(btnAddSubject_Click);
+            btnDeleteSubject.Click += new EventHandler(btnDeleteSubject_Click);
+
+            tabSubjects.Controls.AddRange(new Control[] {
+                lblSubjects,
+                lblTeacher,
+                cmbTeachers,
+                lblSubjectName,
+                txtSubjectName,
+                btnAddSubject,
+                btnDeleteSubject,
+                dgvSubjects
+            });
+
+            return tabSubjects;
         }
 
         private void SetupRefreshTimer()
         {
-            refreshTimer = new Timer
+            refreshTimer = new Timer { Interval = 5000 };
+            refreshTimer.Tick += (s, e) => 
             {
-                Interval = 5000 // Refresh every 5 seconds
+                LoadStatistics();
+                if (tabControl.SelectedTab.Text == "Manage Subjects")
+                    LoadSubjects();
             };
-            refreshTimer.Tick += (s, e) => LoadStatistics();
             refreshTimer.Start();
         }
 
@@ -256,6 +405,31 @@ namespace StudentFeedbackSystem.Forms
             }
         }
 
+        private void LoadSubjects()
+        {
+            try
+            {
+                DataTable dt = DBConnection.GetAllSubjects();
+                dgvSubjects.Rows.Clear();
+
+                foreach (DataRow row in dt.Rows)
+                {
+                    dgvSubjects.Rows.Add(
+                        row["SubjectID"],
+                        row["SubjectName"],
+                        row["TeacherName"],
+                        row["EnrollmentCount"],
+                        row["FeedbackCount"]
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error loading subjects: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
         private void btnGenerateCode_Click(object sender, EventArgs e)
         {
             try
@@ -268,12 +442,8 @@ namespace StudentFeedbackSystem.Forms
                 }
 
                 string userType = cmbUserType.SelectedItem.ToString();
-                string query = "EXEC sp_GenerateLoginCode @UserType";
-                SqlParameter[] parameters = {
-                    new SqlParameter("@UserType", userType)
-                };
+                DataTable dt = DBConnection.GenerateLoginCode(userType);
 
-                DataTable dt = DBConnection.ExecuteQuery(query, parameters);
                 if (dt.Rows.Count > 0)
                 {
                     string code = dt.Rows[0]["GeneratedCode"].ToString();
@@ -288,17 +458,80 @@ namespace StudentFeedbackSystem.Forms
             }
         }
 
-        private void FormAdminDashboard_Load(object sender, EventArgs e)
+        private void btnAddSubject_Click(object sender, EventArgs e)
         {
-            LoadStatistics();
-            LoadGeneratedCodes();
+            try
+            {
+                if (cmbTeachers.SelectedValue == null)
+                {
+                    MessageBox.Show("Please select a teacher.", "Validation Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                string subjectName = txtSubjectName.Text.Trim();
+                if (string.IsNullOrEmpty(subjectName))
+                {
+                    MessageBox.Show("Please enter a subject name.", "Validation Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                int teacherId = Convert.ToInt32(cmbTeachers.SelectedValue);
+                DBConnection.AddSubject(subjectName, teacherId);
+
+                MessageBox.Show("Subject added successfully.", "Success",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                txtSubjectName.Clear();
+                LoadSubjects();
+                LoadStatistics();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error adding subject: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
-        protected override void OnFormClosing(FormClosingEventArgs e)
+        private void btnDeleteSubject_Click(object sender, EventArgs e)
         {
-            base.OnFormClosing(e);
-            refreshTimer?.Stop();
-            refreshTimer?.Dispose();
+            try
+            {
+                if (dgvSubjects.SelectedRows.Count == 0)
+                {
+                    MessageBox.Show("Please select a subject to delete.", "Validation Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                int subjectId = Convert.ToInt32(dgvSubjects.SelectedRows[0].Cells["SubjectID"].Value);
+                int feedbackCount = Convert.ToInt32(dgvSubjects.SelectedRows[0].Cells["FeedbackCount"].Value);
+
+                if (feedbackCount > 0)
+                {
+                    MessageBox.Show("Cannot delete subject that has feedback.", "Validation Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (MessageBox.Show("Are you sure you want to delete this subject?", "Confirm Delete",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                {
+                    DBConnection.DeleteSubject(subjectId);
+
+                    MessageBox.Show("Subject deleted successfully.", "Success",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                    LoadSubjects();
+                    LoadStatistics();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error deleting subject: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
     }
 }
